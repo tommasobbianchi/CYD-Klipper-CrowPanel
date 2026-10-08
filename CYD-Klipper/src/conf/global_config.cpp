@@ -196,6 +196,26 @@ void load_global_config()
     preferences.getBytes("global_config", &global_config, sizeof(global_config));
     preferences.end();
 
+#if defined(CYD_SCREEN_DRIVER_ESP32_PANDATOUCH) && __has_include("../core/device/pt_secrets.h")
+    // Panda Touch has no usable on-screen input during bring-up: seed WiFi + Moonraker once, from a gitignored header.
+    #include "../core/device/pt_secrets.h"
+    if (!global_config.wifi_configured)
+    {
+        global_config.wifi_configured = true;
+        strlcpy(global_config.wifi_SSID, PT_WIFI_SSID, sizeof(global_config.wifi_SSID));
+        strlcpy(global_config.wifi_password, PT_WIFI_PASS, sizeof(global_config.wifi_password));
+
+        PrinterConfiguration *pc = &global_config.printer_config[0];
+        pc->printer_type = PrinterTypeKlipper;
+        strlcpy(pc->printer_host, "192.168.0.100", sizeof(pc->printer_host));
+        pc->klipper_port = 7125;
+        pc->ip_configured = true;
+        pc->setup_complete = true;
+        global_config.brightness = 80; // bring-up: keep USB-powered current draw low
+        write_global_config();
+    }
+#endif
+
     #if defined REPO_DEVELOPMENT  &&  REPO_DEVELOPMENT == 1
         temporary_config.debug = true;
     #else
