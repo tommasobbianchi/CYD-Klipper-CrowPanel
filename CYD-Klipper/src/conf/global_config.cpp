@@ -207,8 +207,16 @@ void load_global_config()
 
         PrinterConfiguration *pc = &global_config.printer_config[0];
         pc->printer_type = PrinterTypeKlipper;
+        #ifdef PT_MR_HOST
+        strlcpy(pc->printer_host, PT_MR_HOST, sizeof(pc->printer_host));   // dev override from pt_secrets.h
+#else
         strlcpy(pc->printer_host, "192.168.0.100", sizeof(pc->printer_host));
+#endif
+#ifdef PT_MR_PORT
+        pc->klipper_port = PT_MR_PORT;
+#else
         pc->klipper_port = 7125;
+#endif
         pc->ip_configured = true;
         pc->setup_complete = true;
         global_config.brightness = 80; // bring-up: keep USB-powered current draw low

@@ -17,6 +17,7 @@
       "-DCYD_SCREEN_FONT_SMALL=lv_font_montserrat_24",
       "-DCYD_SCREEN_SIDEBAR_SIZE_PX=100",
       "-DCYD_SCREEN_DRIVER_ESP32_PANDATOUCH=1",
+      "-DCYD_KS_UI=1",
       "-DCYD_SCREEN_DISABLE_TOUCH_CALIBRATION=1"
     ],
     "f_cpu": "240000000L",

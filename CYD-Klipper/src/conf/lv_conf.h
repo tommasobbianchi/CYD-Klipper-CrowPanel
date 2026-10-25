@@ -575,7 +575,11 @@
 #define LV_USE_FLEX 1
 
 /*A layout similar to Grid in CSS.*/
+#ifdef CYD_KS_UI
+#define LV_USE_GRID 1
+#else
 #define LV_USE_GRID 0
+#endif
 
 /*---------------------
  * 3rd party libraries
