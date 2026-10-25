@@ -117,11 +117,31 @@ static bool g_was_conn = false;
 lv_obj_t* ks_content() { return g_content; }
 void ks_set_title(const char* t) { if (g_title_lbl) lv_label_set_text(g_title_lbl, t); }
 
+// Every panel gets a brand-new content container: the old one is deleted with all its children, handlers, subscriptions and
+// style changes, so nothing a panel does (flex layout, padding, ks_on_state on the container) can outlive it.
+static void new_content() {
+    if (g_content) lv_obj_del(g_content);
+    g_content = lv_obj_create(lv_scr_act());                 // .content
+    lv_obj_add_style(g_content, &st_plain, 0);
+    lv_obj_set_size(g_content, 800 - KS_ACTION_W, 480 - KS_TITLE_H);
+    lv_obj_set_pos(g_content, KS_ACTION_W, KS_TITLE_H);
+    lv_obj_clear_flag(g_content, LV_OBJ_FLAG_SCROLLABLE);
+}
+
+// job_status.cpp: during a print (and until its end screen is dismissed) the home screen is Print Status, like Sovol's KlipperScreen
+bool ks_job_active();
+bool ks_job_end_pending();
+static bool g_job_view = false;
+static bool job_view() { return !g_splash && (ks_job_active() || ks_job_end_pending()); }
+
 static void show_current() {
-    lv_obj_clean(g_content);
+    new_content();
     if (g_depth == 0 && g_splash) {
         ks_set_title("Klipper");
         ks_panel_splash(g_content);
+    } else if (g_depth == 0 && (g_job_view = job_view())) {
+        ks_set_title("Print Status");
+        ks_panel_job_status(g_content);
     } else if (g_depth == 0) {
         ks_set_title("Main Menu");
         ks_menu_open_main();
@@ -161,6 +181,7 @@ static void fmt_temp(char* out, size_t n, const char* obj) {
 static void on_state(lv_event_t*) {
     bool conn = ks_connected();
     if (conn != g_was_conn) { g_was_conn = conn; g_splash = !conn; g_depth = 0; show_current(); }
+    else if (job_view() != g_job_view) { g_depth = 0; show_current(); }     // a print started / its end screen was dismissed
     char buf[24], ext[40] = "extruder";
     ks_str("toolhead", "extruder", ext, sizeof ext);
     fmt_temp(buf, sizeof buf, ext);       lv_label_set_text(g_ext_lbl, buf);
@@ -228,11 +249,7 @@ void ks_ui_start() {
     g_time_lbl = ks_label(g_title_bar, "--:--", &ks_font_22);
     lv_obj_align(g_time_lbl, LV_ALIGN_RIGHT_MID, -12, 0);
 
-    g_content = lv_obj_create(scr);                        // .content
-    lv_obj_add_style(g_content, &st_plain, 0);
-    lv_obj_set_size(g_content, 800 - KS_ACTION_W, 480 - KS_TITLE_H);
-    lv_obj_set_pos(g_content, KS_ACTION_W, KS_TITLE_H);
-    lv_obj_clear_flag(g_content, LV_OBJ_FLAG_SCROLLABLE);
+    g_content = nullptr;                                   // created per panel in show_current()
 
     lv_obj_add_event_cb(g_title_bar, on_state, LV_EVENT_MSG_RECEIVED, nullptr);
     lv_msg_subscribe_obj(KS_MSG_STATE, g_title_bar, nullptr);

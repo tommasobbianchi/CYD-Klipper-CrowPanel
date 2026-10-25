@@ -40,7 +40,7 @@ static const PanelName PANELS[] = {
 static void handle_open() {
     String n = g_srv->arg("p");
     for (const PanelName& p : PANELS)
-        if (n == p.name) { ks_open(p.name, p.fn); g_srv->send(200, "text/plain", "ok"); return; }
+        if (n == p.name) { ks_home(); ks_open(p.name, p.fn); g_srv->send(200, "text/plain", "ok"); return; }
     if (n == "more") { ks_home(); g_srv->send(200, "text/plain", "use /home then tap More"); return; }
     g_srv->send(404, "text/plain", "unknown panel");
 }

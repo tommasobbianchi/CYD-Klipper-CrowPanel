@@ -7,6 +7,15 @@
 // JSON documents use the default allocator: small blocks stay in internal RAM, which keeps PSRAM bandwidth
 // free for the RGB panel DMA (poll parsing in PSRAM caused visible display glitches).
 
+// Large one-off responses (configfile settings, file lists) get their JSON pool in PSRAM; the 1 Hz status document stays in
+// internal RAM so the poll never touches the PSRAM bus the display scans from.
+struct PsramAllocator : ArduinoJson::Allocator {
+    void* allocate(size_t n) override { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM); }
+    void deallocate(void* p) override { heap_caps_free(p); }
+    void* reallocate(void* p, size_t n) override { return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM); }
+};
+static PsramAllocator g_psram_alloc;
+
 static JsonDocument g_status;                      // merged printer object status            // merged printer object status
 static SemaphoreHandle_t g_lock;                    // guards g_status + g_flags
 static bool g_connected = false;
@@ -148,7 +157,7 @@ static void service_requests() {
             free(r.path); free(r.body);
             continue;
         }
-        JsonDocument* doc = r.cb ? new JsonDocument : nullptr;
+        JsonDocument* doc = r.cb ? new JsonDocument(&g_psram_alloc) : nullptr;
         bool ok = http_json(r.path, r.body, r.post, doc, 8000);
         if (r.cb) { Res res{doc, ok, r.cb, r.user, nullptr, 0, nullptr}; if (xQueueSend(g_res_q, &res, pdMS_TO_TICKS(50)) != pdTRUE) delete doc; }
         free(r.path); free(r.body);

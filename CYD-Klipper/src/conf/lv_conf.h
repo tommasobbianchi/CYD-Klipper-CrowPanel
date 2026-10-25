@@ -46,7 +46,11 @@
  *=========================*/
 
 /*1: use custom malloc/free, 0: use the built-in `lv_mem_alloc()` and `lv_mem_free()`*/
+#ifdef CYD_KS_UI
+#define LV_MEM_CUSTOM 1            /* KlipperScreen port: small blocks in internal RAM, the rest in PSRAM (see ks/ks_lvmem.h) */
+#else
 #define LV_MEM_CUSTOM 0
+#endif
 #if LV_MEM_CUSTOM == 0
     /*Size of the memory available for `lv_mem_alloc()` in bytes (>= 2kB)*/
     #define LV_MEM_SIZE (40U * 1024U)          /*[bytes]*/
@@ -60,10 +64,17 @@
     #endif
 
 #else       /*LV_MEM_CUSTOM*/
+  #ifdef CYD_KS_UI
+    #define LV_MEM_CUSTOM_INCLUDE <ks/ks_lvmem.h>
+    #define LV_MEM_CUSTOM_ALLOC   ks_lv_alloc
+    #define LV_MEM_CUSTOM_FREE    ks_lv_free
+    #define LV_MEM_CUSTOM_REALLOC ks_lv_realloc
+  #else
     #define LV_MEM_CUSTOM_INCLUDE <stdlib.h>   /*Header for the dynamic memory function*/
     #define LV_MEM_CUSTOM_ALLOC   malloc
     #define LV_MEM_CUSTOM_FREE    free
     #define LV_MEM_CUSTOM_REALLOC realloc
+  #endif
 #endif     /*LV_MEM_CUSTOM*/
 
 /*Number of the intermediate memory buffer used during rendering and other internal processing mechanisms.
