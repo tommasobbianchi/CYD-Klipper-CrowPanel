@@ -7,7 +7,7 @@
 static void todo(lv_obj_t* c, const char* name) {
     char b[80];
     snprintf(b, sizeof b, "%s: not implemented yet", name);
-    lv_obj_t* l = ks_label(c, b, &lv_font_montserrat_28);
+    lv_obj_t* l = ks_label(c, b, &ks_font_28);
     lv_obj_center(l);
 }
 #define STUB(fn, label) __attribute__((weak)) void fn(lv_obj_t* c) { todo(c, label); }

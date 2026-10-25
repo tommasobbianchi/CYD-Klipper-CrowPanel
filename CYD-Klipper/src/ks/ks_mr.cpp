@@ -4,19 +4,14 @@
 #include <esp_heap_caps.h>
 #include "../conf/global_config.h"
 
-// ---- PSRAM allocator so the status document does not eat internal RAM ----------------------
-struct PsramAllocator : ArduinoJson::Allocator {
-    void* allocate(size_t n) override { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM); }
-    void deallocate(void* p) override { heap_caps_free(p); }
-    void* reallocate(void* p, size_t n) override { return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM); }
-};
-static PsramAllocator g_alloc;
+// JSON documents use the default allocator: small blocks stay in internal RAM, which keeps PSRAM bandwidth
+// free for the RGB panel DMA (poll parsing in PSRAM caused visible display glitches).
 
-static JsonDocument g_status(&g_alloc);            // merged printer object status
+static JsonDocument g_status;                      // merged printer object status            // merged printer object status
 static SemaphoreHandle_t g_lock;                    // guards g_status + g_flags
 static bool g_connected = false;
 static char g_klippy[16] = "disconnected";
-static char g_klippy_msg[200] = "";
+static char g_klippy_msg[480] = "";
 static volatile bool g_dirty = false;
 static char g_query[900] = "";                      // objects=... part of the poll URL
 
@@ -24,9 +19,11 @@ static char g_query[900] = "";                      // objects=... part of the p
 struct Req {
     char* path; char* body; bool post;
     ks_get_cb cb; void* user;
+    ks_bytes_cb bcb;                     // binary download when set
 };
 struct Res {
     JsonDocument* doc; bool ok; ks_get_cb cb; void* user;
+    uint8_t* data; size_t len; ks_bytes_cb bcb;
 };
 static QueueHandle_t g_req_q, g_res_q;
 
@@ -73,7 +70,7 @@ static void set_klippy(const char* st, const char* msg) {
 
 // Everything except macros/noise is polled, like KlipperScreen's subscribe-to-all.
 static bool build_query() {
-    JsonDocument d(&g_alloc);
+    JsonDocument d;
     if (!http_json("/printer/objects/list", nullptr, false, &d)) return false;
     String q = "/printer/objects/query?";
     bool first = true;
@@ -102,25 +99,58 @@ static bool build_query() {
     return true;
 }
 
-static void poll_once() {
-    JsonDocument d(&g_alloc);
+static volatile bool g_poll_on = true;
+void ks_poll_enable(bool on) { g_poll_on = on; }
+
+static bool poll_once() {
+    if (!g_poll_on) return true;
+    JsonDocument d;
     if (!http_json(g_query, nullptr, false, &d)) {
         if (g_connected) { g_connected = false; g_dirty = true; }
-        return;
+        return false;
     }
     JsonObjectConst st = d["result"]["status"];
     xSemaphoreTake(g_lock, portMAX_DELAY);
     for (JsonPairConst kv : st) g_status[kv.key()] = kv.value();   // deep copy per object
     g_dirty = true;
     xSemaphoreGive(g_lock);
+    return true;
 }
 
 static void service_requests() {
     Req r;
     while (xQueueReceive(g_req_q, &r, 0) == pdTRUE) {
-        JsonDocument* doc = r.cb ? new JsonDocument(&g_alloc) : nullptr;
+        if (r.bcb) {                                              // binary download into PSRAM
+            uint8_t* data = nullptr; size_t len = 0; bool ok = false;
+            if (WiFi.status() == WL_CONNECTED) {
+                HTTPClient c;
+                begin(c, r.path, 10000);
+                if (c.GET() == 200) {
+                    int sz = c.getSize();
+                    if (sz > 0 && sz <= 3 * 1024 * 1024) {
+                        data = (uint8_t*)heap_caps_malloc(sz, MALLOC_CAP_SPIRAM);
+                        if (data) {
+                            WiFiClient* st = c.getStreamPtr();
+                            size_t got = 0; uint32_t last = millis();
+                            while (got < (size_t)sz && millis() - last < 8000) {
+                                int n = st->readBytes(data + got, min((size_t)1460 * 4, (size_t)sz - got));
+                                if (n > 0) { got += n; last = millis(); } else delay(2);
+                            }
+                            ok = got == (size_t)sz; len = got;
+                            if (!ok) { heap_caps_free(data); data = nullptr; }
+                        }
+                    }
+                }
+                c.end();
+            }
+            Res res{nullptr, ok, nullptr, r.user, data, len, r.bcb};
+            if (xQueueSend(g_res_q, &res, pdMS_TO_TICKS(50)) != pdTRUE && data) heap_caps_free(data);
+            free(r.path); free(r.body);
+            continue;
+        }
+        JsonDocument* doc = r.cb ? new JsonDocument : nullptr;
         bool ok = http_json(r.path, r.body, r.post, doc, 8000);
-        if (r.cb) { Res res{doc, ok, r.cb, r.user}; if (xQueueSend(g_res_q, &res, pdMS_TO_TICKS(50)) != pdTRUE) delete doc; }
+        if (r.cb) { Res res{doc, ok, r.cb, r.user, nullptr, 0, nullptr}; if (xQueueSend(g_res_q, &res, pdMS_TO_TICKS(50)) != pdTRUE) delete doc; }
         free(r.path); free(r.body);
     }
 }
@@ -132,11 +162,11 @@ static void worker(void*) {
         if (WiFi.status() != WL_CONNECTED) { vTaskDelay(pdMS_TO_TICKS(500)); continue; }
 
         if (!g_connected) {
-            JsonDocument info(&g_alloc);
+            JsonDocument info;
             if (http_json("/printer/info", nullptr, false, &info)) {
                 const char* st = info["result"]["state"] | "error";
                 set_klippy(st, info["result"]["state_message"] | "");
-                if (!strcmp(st, "ready") && build_query()) { g_connected = true; g_dirty = true; }
+                if (!strcmp(st, "ready") && build_query() && poll_once()) { g_connected = true; g_dirty = true; }  // first status must be in before the UI is built
             } else set_klippy("disconnected", "Moonraker unreachable");
             vTaskDelay(pdMS_TO_TICKS(g_connected ? 10 : 1500));
             continue;
@@ -160,6 +190,7 @@ void ks_mr_start() {
 static void tick_cb(lv_timer_t*) {
     Res r;
     while (xQueueReceive(g_res_q, &r, 0) == pdTRUE) {
+        if (r.bcb) { r.bcb(r.ok, r.data, r.len, r.user); continue; }
         if (r.cb) {
             if (r.doc) r.cb(r.ok, *r.doc, r.user);
         }
@@ -228,8 +259,8 @@ void ks_with_status(void (*fn)(JsonObjectConst, void*), void* user) {
 }
 
 // ---- commands --------------------------------------------------------------------------------
-static void enqueue(const char* path, const char* body, bool post, ks_get_cb cb, void* user) {
-    Req r{strdup(path), body ? strdup(body) : nullptr, post, cb, user};
+static void enqueue(const char* path, const char* body, bool post, ks_get_cb cb, void* user, ks_bytes_cb bcb = nullptr) {
+    Req r{strdup(path), body ? strdup(body) : nullptr, post, cb, user, bcb};
     if (xQueueSend(g_req_q, &r, pdMS_TO_TICKS(100)) != pdTRUE) { free(r.path); free(r.body); }
 }
 void ks_gcode(const char* fmt, ...) {
@@ -242,3 +273,6 @@ void ks_gcode(const char* fmt, ...) {
 void ks_post(const char* path, const char* json_body) { enqueue(path, json_body, true, nullptr, nullptr); }
 void ks_get_async(const char* path, ks_get_cb cb, void* user) { enqueue(path, nullptr, false, cb, user); }
 void ks_post_async(const char* path, const char* json_body, ks_get_cb cb, void* user) { enqueue(path, json_body, true, cb, user); }
+
+void ks_get_bytes_async(const char* path, ks_bytes_cb cb, void* user) { enqueue(path, nullptr, false, nullptr, user, cb); }
+void ks_free_bytes(void* data) { if (data) heap_caps_free(data); }

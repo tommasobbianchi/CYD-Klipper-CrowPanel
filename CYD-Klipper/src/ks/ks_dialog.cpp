@@ -38,10 +38,10 @@ void ks_confirm(const char* title, const char* text, const char* ok_label, void 
     lv_obj_set_style_pad_row(card, 16, 0);
     lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t* t = ks_label(card, title, &lv_font_montserrat_28);
+    lv_obj_t* t = ks_label(card, title, &ks_font_28);
     lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP); lv_obj_set_width(t, lv_pct(100));
     if (text && *text) {
-        lv_obj_t* x = ks_label(card, text, &lv_font_montserrat_22);
+        lv_obj_t* x = ks_label(card, text, &ks_font_22);
         lv_label_set_long_mode(x, LV_LABEL_LONG_WRAP); lv_obj_set_width(x, lv_pct(100));
     }
     lv_obj_t* row = lv_obj_create(card);

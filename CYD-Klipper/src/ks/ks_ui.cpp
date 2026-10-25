@@ -13,7 +13,7 @@ lv_color_t ks_color(int n) {
 }
 
 // ---- styles -----------------------------------------------------------------------------------
-static lv_style_t st_btn, st_btn_pr, st_plain;
+static lv_style_t st_btn, st_btn_pr, st_plain, st_btn_dis;
 static bool g_styles = false;
 static void styles_init() {
     if (g_styles) return;
@@ -36,6 +36,11 @@ static void styles_init() {
     lv_style_set_pad_all(&st_btn, 4);
     lv_style_set_text_color(&st_btn, lv_color_white());
 
+    lv_style_init(&st_btn_dis);                 // button:disabled keeps the flat background, greyed content
+    lv_style_set_bg_color(&st_btn_dis, KS_BG);
+    lv_style_set_img_opa(&st_btn_dis, LV_OPA_30);
+    lv_style_set_text_opa(&st_btn_dis, LV_OPA_40);
+
     lv_style_init(&st_btn_pr);                  // button:active { background @active }
     lv_style_set_bg_color(&st_btn_pr, KS_ACTIVE);
 }
@@ -43,11 +48,8 @@ static void styles_init() {
 // ---- widgets -----------------------------------------------------------------------------------
 lv_obj_t* ks_img(lv_obj_t* parent, const char* icon, int px, lv_color_t color) {
     lv_obj_t* im = lv_img_create(parent);
-    const lv_img_dsc_t* d = ks_icon(icon);
+    const lv_img_dsc_t* d = ks_icon(icon, px);   // pre-rendered at the exact size, no runtime zoom
     if (d) lv_img_set_src(im, d);
-    lv_obj_set_size(im, px, px);
-    lv_img_set_pivot(im, 0, 0);
-    lv_img_set_zoom(im, 256 * px / 80);
     lv_obj_set_style_img_recolor(im, color, 0);
     lv_obj_set_style_img_recolor_opa(im, LV_OPA_COVER, 0);
     lv_obj_clear_flag(im, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
@@ -57,16 +59,21 @@ lv_obj_t* ks_img(lv_obj_t* parent, const char* icon, int px, lv_color_t color) {
 lv_obj_t* ks_label(lv_obj_t* parent, const char* text, const lv_font_t* font) {
     lv_obj_t* l = lv_label_create(parent);
     lv_label_set_text(l, text);
-    lv_obj_set_style_text_font(l, font ? font : &lv_font_montserrat_22, 0);
+    lv_obj_set_style_text_font(l, font ? font : &ks_font_22, 0);
     lv_obj_set_style_text_color(l, lv_color_white(), 0);
     return l;
 }
 
 lv_obj_t* ks_button(lv_obj_t* parent, const char* icon, const char* label, int color, lv_event_cb_t cb, void* user) {
+    return ks_button_sized(parent, icon, label ? 72 : 56, label, color, cb, user);
+}
+
+lv_obj_t* ks_button_sized(lv_obj_t* parent, const char* icon, int icon_px, const char* label, int color, lv_event_cb_t cb, void* user) {
     styles_init();
     lv_obj_t* b = lv_btn_create(parent);
     lv_obj_add_style(b, &st_btn, 0);
     lv_obj_add_style(b, &st_btn_pr, LV_STATE_PRESSED);
+    lv_obj_add_style(b, &st_btn_dis, LV_STATE_DISABLED);
     if (color) {                                 // button.colorN { border-bottom: .4em solid colorN }
         lv_obj_set_style_border_side(b, LV_BORDER_SIDE_BOTTOM, 0);
         lv_obj_set_style_border_width(b, 6, 0);
@@ -75,10 +82,11 @@ lv_obj_t* ks_button(lv_obj_t* parent, const char* icon, const char* label, int c
     lv_obj_set_flex_flow(b, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(b, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_row(b, 4, 0);
-    if (icon) ks_img(b, icon, label ? 64 : 56, lv_color_white());
+    if (icon) ks_img(b, icon, icon_px, lv_color_white());
     if (label) {
-        lv_obj_t* l = ks_label(b, label, &lv_font_montserrat_22);
-        lv_label_set_long_mode(l, LV_LABEL_LONG_DOT);
+        lv_obj_t* l = ks_label(b, label, &ks_font_22);
+        lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP);     // long names wrap onto a second line instead of being cut
+        lv_obj_set_width(l, lv_pct(100));
         lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
     }
     if (cb) lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, user);
@@ -92,7 +100,7 @@ void ks_toast(const char* text) {
     lv_obj_set_style_pad_all(t, 12, 0);
     lv_obj_set_size(t, 520, LV_SIZE_CONTENT);
     lv_obj_align(t, LV_ALIGN_BOTTOM_MID, 0, -20);
-    ks_label(t, text, &lv_font_montserrat_22);
+    ks_label(t, text, &ks_font_22);
     lv_obj_del_delayed(t, 2500);
 }
 
@@ -123,8 +131,9 @@ static void show_current() {
         n.init(g_content);
     }
     if (g_btn_back) {
-        if (g_depth == 0) lv_obj_add_state(g_btn_back, LV_STATE_DISABLED);
-        else lv_obj_clear_state(g_btn_back, LV_STATE_DISABLED);
+        bool root = g_depth == 0;
+        if (root) lv_obj_clear_flag(g_btn_back, LV_OBJ_FLAG_CLICKABLE); else lv_obj_add_flag(g_btn_back, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_style_img_opa(lv_obj_get_child(g_btn_back, 0), root ? LV_OPA_30 : LV_OPA_COVER, 0);
     }
 }
 void ks_open(const char* title, ks_panel_init init) {
@@ -164,9 +173,9 @@ static void on_state(lv_event_t*) {
 
 static lv_obj_t* action_btn(const char* icon, lv_event_cb_t cb, lv_color_t col) {
     lv_obj_t* b = ks_button(g_action, nullptr, nullptr, 0, cb, nullptr);
-    lv_obj_set_size(b, KS_ACTION_W - 8, KS_ACTION_W - 8);
-    lv_obj_t* im = ks_img(b, icon, 56, col);
-    (void)im;
+    lv_obj_set_width(b, lv_pct(100));
+    lv_obj_set_flex_grow(b, 1);
+    ks_img(b, icon, 56, col);
     return b;
 }
 
@@ -184,9 +193,8 @@ void ks_ui_start() {
     lv_obj_set_size(g_action, KS_ACTION_W, 480);
     lv_obj_set_pos(g_action, 0, 0);
     lv_obj_set_flex_flow(g_action, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(g_action, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(g_action, 5, 0);
-    lv_obj_set_style_pad_top(g_action, 4, 0);
+    lv_obj_set_style_pad_row(g_action, 4, 0);
+    lv_obj_set_style_pad_all(g_action, 2, 0);
     lv_obj_clear_flag(g_action, LV_OBJ_FLAG_SCROLLABLE);
     g_btn_back = action_btn("back", on_back, lv_color_white());
     action_btn("main", on_home, lv_color_white());
@@ -202,22 +210,22 @@ void ks_ui_start() {
 
     lv_obj_t* temps = lv_obj_create(g_title_bar);
     lv_obj_add_style(temps, &st_plain, 0);
-    lv_obj_set_size(temps, 250, KS_TITLE_H);
+    lv_obj_set_size(temps, 330, KS_TITLE_H);
     lv_obj_align(temps, LV_ALIGN_LEFT_MID, 6, 0);
     lv_obj_set_flex_flow(temps, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(temps, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(temps, 4, 0);
     lv_obj_clear_flag(temps, LV_OBJ_FLAG_SCROLLABLE);
-    ks_img(temps, "extruder", 36, lv_color_white());
-    g_ext_lbl = ks_label(temps, "--", &lv_font_montserrat_22);
+    ks_img(temps, "extruder", 40, lv_color_white());
+    g_ext_lbl = ks_label(temps, "--", &ks_font_22);
     lv_obj_set_style_pad_left(g_ext_lbl, 0, 0);
     lv_obj_t* sp = lv_obj_create(temps); lv_obj_add_style(sp, &st_plain, 0); lv_obj_set_size(sp, 8, 1);
-    ks_img(temps, "bed", 36, lv_color_white());
-    g_bed_lbl = ks_label(temps, "--", &lv_font_montserrat_22);
+    ks_img(temps, "bed", 40, lv_color_white());
+    g_bed_lbl = ks_label(temps, "--", &ks_font_22);
 
-    g_title_lbl = ks_label(g_title_bar, "Main Menu", &lv_font_montserrat_28);
-    lv_obj_align(g_title_lbl, LV_ALIGN_CENTER, 20, 0);
-    g_time_lbl = ks_label(g_title_bar, "--:--", &lv_font_montserrat_22);
+    g_title_lbl = ks_label(g_title_bar, "Main Menu", &ks_font_28);
+    lv_obj_align(g_title_lbl, LV_ALIGN_CENTER, 110, 0);
+    g_time_lbl = ks_label(g_title_bar, "--:--", &ks_font_22);
     lv_obj_align(g_time_lbl, LV_ALIGN_RIGHT_MID, -12, 0);
 
     g_content = lv_obj_create(scr);                        // .content

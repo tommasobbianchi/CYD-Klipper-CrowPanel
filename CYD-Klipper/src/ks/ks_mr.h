@@ -8,6 +8,7 @@
 void ks_mr_start();              // spawn the worker task (idempotent)
 void ks_mr_tick_init();          // LVGL-side timer: delivers async results + state notifications
 
+void ks_poll_enable(bool on);     // diagnostics: pause/resume the 1 Hz status poll
 void ks_retry();                 // drop the connection and re-handshake now
 bool ks_connected();             // Moonraker reachable and Klippy answering
 const char* ks_klippy_state();   // "ready" | "startup" | "shutdown" | "error" | "disconnected"
@@ -31,6 +32,12 @@ void ks_post(const char* path, const char* json_body);                      // f
 typedef void (*ks_get_cb)(bool ok, JsonDocument& doc, void* user);          // runs in the LVGL thread
 void ks_get_async(const char* path, ks_get_cb cb, void* user);
 void ks_post_async(const char* path, const char* json_body, ks_get_cb cb, void* user);
+
+// Binary download (thumbnails, snapshots) into PSRAM, max 3 MB. The callback (LVGL thread) takes ownership of `data`
+// and must release it with ks_free_bytes(); data == nullptr when ok is false.
+typedef void (*ks_bytes_cb)(bool ok, uint8_t* data, size_t len, void* user);
+void ks_get_bytes_async(const char* path, ks_bytes_cb cb, void* user);
+void ks_free_bytes(void* data);
 
 // ---- state-change notification (LVGL thread) ---------------------------------------------
 #define KS_MSG_STATE 0x4B53   // lv_msg id sent ~1/s while connected and on connect/disconnect

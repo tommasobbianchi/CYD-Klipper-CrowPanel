@@ -16,6 +16,9 @@
 #include <ArduinoOTA.h>
 #include <WiFi.h>
 void ks_menu_caps_init();
+void ks_debug_loop();
+bool ks_wifi_held();
+void ks_wifi_supervise();
 #endif
 
 void setup() {
@@ -44,7 +47,11 @@ void setup() {
 }
 
 void loop(){
+#ifdef CYD_KS_UI
+    ks_wifi_supervise();              // non-blocking replacement for wifi_ok() (ks_debug.cpp)
+#else
     wifi_ok();
+#endif
 #ifndef CYD_KS_UI
     data_loop();
 #else
@@ -55,7 +62,7 @@ void loop(){
         ArduinoOTA.begin();
         ota_started = true;
     }
-    if (ota_started) ArduinoOTA.handle();
+    if (ota_started) { ArduinoOTA.handle(); ks_debug_loop(); }
 #endif
     lv_handler();
     serial_console::run();

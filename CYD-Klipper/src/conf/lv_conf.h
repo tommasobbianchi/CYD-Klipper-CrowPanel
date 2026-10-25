@@ -667,7 +667,11 @@
  *----------*/
 
 /*1: Enable API to take snapshot for object*/
+#ifdef CYD_KS_UI
+#define LV_USE_SNAPSHOT 1
+#else
 #define LV_USE_SNAPSHOT 0
+#endif
 
 /*1: Enable Monkey test*/
 #define LV_USE_MONKEY   0

@@ -63,7 +63,12 @@ void data_loop()
 }
 
 void data_loop_background(void * param){
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+    esp_task_wdt_config_t wdt_cfg = {.timeout_ms = 10000, .idle_core_mask = 0, .trigger_panic = true};   // IDF 5 API
+    esp_task_wdt_reconfigure(&wdt_cfg);
+#else
     esp_task_wdt_init(10, true);
+#endif
     int loop_iter = 20;
     while (true){
         delay(data_update_interval);
