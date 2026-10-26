@@ -10,6 +10,7 @@
 
 uint32_t pt_vsync_count();
 uint32_t pt_pclk_khz();
+int ks_mr_stage(uint32_t* since_ms);
 static WebServer* g_srv;
 static uint32_t g_wifi_off_until = 0;                 // diagnostics: WiFi radio held off until this millis()
 bool ks_wifi_held() { return g_wifi_off_until && (int32_t)(millis() - g_wifi_off_until) < 0; }
@@ -19,10 +20,12 @@ static void handle_info() {
     uint32_t v0 = pt_vsync_count(); uint32_t t0 = millis();
     delay(1000);
     uint32_t v1 = pt_vsync_count(); uint32_t t1 = millis();
-    char b[256];
-    snprintf(b, sizeof b, "{\"pclk_khz\":%u,\"measured_hz\":%.2f,\"uptime_s\":%u,\"free_heap\":%u,\"free_psram\":%u,\"reset\":%d}",
-             (unsigned)pt_pclk_khz(), (v1 - v0) * 1000.0 / (t1 - t0), (unsigned)(millis() / 1000), (unsigned)ESP.getFreeHeap(),
-             (unsigned)ESP.getFreePsram(), (int)esp_reset_reason());
+    uint32_t since; int st = ks_mr_stage(&since);
+    Preferences pf; pf.begin("ks", true); String wedge = pf.getString("wedge", ""); pf.end();
+    char b[400];
+    snprintf(b, sizeof b, "{\"stage\":%d,\"stage_ms\":%u,\"pclk_khz\":%u,\"measured_hz\":%.2f,\"uptime_s\":%u,\"free_heap\":%u,\"free_psram\":%u,\"reset\":%d,\"wedge\":\"%s\"}",
+             st, (unsigned)since, (unsigned)pt_pclk_khz(), (v1 - v0) * 1000.0 / (t1 - t0), (unsigned)(millis() / 1000), (unsigned)ESP.getFreeHeap(),
+             (unsigned)ESP.getFreePsram(), (int)esp_reset_reason(), wedge.c_str());
     g_srv->send(200, "application/json", b);
 }
 

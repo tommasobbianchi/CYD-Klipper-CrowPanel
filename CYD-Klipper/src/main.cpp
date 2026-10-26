@@ -17,6 +17,7 @@
 #include <WiFi.h>
 void ks_menu_caps_init();
 void ks_debug_loop();
+void ks_mr_watchdog();
 bool ks_wifi_held();
 void ks_wifi_supervise();
 #endif
@@ -63,6 +64,7 @@ void loop(){
         ota_started = true;
     }
     if (ota_started) { ArduinoOTA.handle(); ks_debug_loop(); }
+    ks_mr_watchdog();
 #endif
     lv_handler();
     serial_console::run();

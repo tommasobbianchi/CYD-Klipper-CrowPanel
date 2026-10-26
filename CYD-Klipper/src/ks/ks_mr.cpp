@@ -2,6 +2,7 @@
 #include <HTTPClient.h>
 #include <WiFi.h>
 #include <esp_heap_caps.h>
+#include <Preferences.h>
 #include "../conf/global_config.h"
 
 // JSON documents use the default allocator: small blocks stay in internal RAM, which keeps PSRAM bandwidth
@@ -51,21 +52,43 @@ static void begin(HTTPClient& c, const char* path, int timeout_ms) {
 }
 
 // GET/POST and parse into *out (PSRAM). Returns true on HTTP 2xx + valid JSON.
+volatile int g_stage = 0;                       // diagnostics: where the worker is (see /info)
+volatile uint32_t g_stage_ms = 0;
+static void stage(int s) { g_stage = s; g_stage_ms = millis(); }
+static volatile uint32_t g_beat;                // worker loop heartbeat
+// Called from loop(): the worker has not completed a turn for 45 s (every HTTP call is capped at 8 s) -> it is wedged and every
+// async panel would sit on "Loading..." forever. Say where, then reboot; the cause is still unknown.
+void ks_mr_watchdog() {
+    if (!g_beat || millis() - g_beat < 45000) return;
+    Serial.printf("ks_mr worker wedged: stage %d for %u ms, WiFi %d\n", g_stage, (unsigned)(millis() - g_stage_ms), (int)WiFi.status());
+    Preferences pf; pf.begin("ks", false);          // read back by /info after the reboot
+    char w[48]; snprintf(w, sizeof w, "stage %d for %u ms, wifi %d", g_stage, (unsigned)(millis() - g_stage_ms), (int)WiFi.status());
+    pf.putString("wedge", w); pf.end();
+    delay(100);
+    ESP.restart();
+}
+int ks_mr_stage(uint32_t* since_ms) { *since_ms = millis() - g_stage_ms; return g_stage; }
+
 static bool http_json(const char* path, const char* body, bool post, JsonDocument* out, int timeout_ms = 4000) {
     if (WiFi.status() != WL_CONNECTED) return false;
     HTTPClient c;
     begin(c, path, timeout_ms);
     int code;
+    stage(1);
     if (post) { c.addHeader("Content-Type", "application/json"); code = c.POST(body ? body : "{}"); }
     else code = c.GET();
+    stage(2);
     bool ok = false;
     if (code >= 200 && code < 300) {
         if (out) {
             String s = c.getString();
+            stage(3);
             ok = !deserializeJson(*out, s);
         } else ok = true;
     }
+    stage(4);
     c.end();
+    stage(5);
     return ok;
 }
 
@@ -129,6 +152,7 @@ static bool poll_once() {
 static void service_requests() {
     Req r;
     while (xQueueReceive(g_req_q, &r, 0) == pdTRUE) {
+        g_beat = millis();
         if (r.bcb) {                                              // binary download into PSRAM
             uint8_t* data = nullptr; size_t len = 0; bool ok = false;
             if (WiFi.status() == WL_CONNECTED) {
@@ -167,6 +191,7 @@ static void service_requests() {
 static void worker(void*) {
     uint32_t last_poll = 0;
     for (;;) {
+        g_beat = millis();
         service_requests();
         if (WiFi.status() != WL_CONNECTED) { vTaskDelay(pdMS_TO_TICKS(500)); continue; }
 
