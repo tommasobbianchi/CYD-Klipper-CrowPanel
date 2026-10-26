@@ -107,6 +107,7 @@ void ks_debug_loop() {
         g_srv->on("/poll", []() { ks_poll_enable(g_srv->arg("on") != "0"); g_srv->send(200, "text/plain", g_srv->arg("on") != "0" ? "poll on" : "poll off"); });
         g_srv->on("/home", []() { ks_home(); g_srv->send(200, "text/plain", "ok"); });
         g_srv->on("/back", []() { ks_back(); g_srv->send(200, "text/plain", "ok"); });
+        g_srv->on("/reboot", []() { g_srv->send(200, "text/plain", "rebooting"); delay(200); ESP.restart(); });
         g_srv->begin();
     }
     g_srv->handleClient();
